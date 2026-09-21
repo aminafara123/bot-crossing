@@ -324,6 +324,15 @@ for (const addrs of Object.values(os.networkInterfaces())) {
   }
 }
 
+// Under WSL2 the Windows host's own address is not one of this machine's interfaces,
+// so a phone that reaches the Windows side arrives with a Host the loop above never
+// learned. BOT_CROSSING_ALLOWED_HOSTS names those extra addresses, comma separated,
+// and they get the same Host and Origin treatment as the rest.
+for (const extra of (process.env.BOT_CROSSING_ALLOWED_HOSTS || '').split(',')) {
+  const host = extra.trim()
+  if (host) LOCAL_HOSTS.add(host)
+}
+
 /** Hostname out of a `Host:` or `Origin:` value, with the port and any brackets stripped. */
 function hostnameOf(value) {
   if (!value) return ''
