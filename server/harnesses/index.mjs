@@ -13,8 +13,9 @@ import cursor from './cursor.mjs'
 import hermes from './hermes.mjs'
 import kilocode from './kilocode.mjs'
 import opencode from './opencode.mjs'
+import localAgent from './local-agent.mjs'
 
-export const HARNESSES = [claudeCode, codex, cursor, antigravity, hermes, kilocode, opencode]
+export const HARNESSES = [claudeCode, codex, cursor, antigravity, hermes, kilocode, opencode, localAgent]
 
 export const harnessById = (id) => HARNESSES.find((h) => h.id === id) || null
 

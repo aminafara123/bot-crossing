@@ -6,6 +6,10 @@ import { fileURLToPath } from 'node:url'
 import { schemeHasHandler, schemeOf } from './lib/xdg.mjs'
 import { openInTerminal } from './lib/terminal.mjs'
 import { focusWindowOfPid } from './lib/windows.mjs'
+import { harnessById as harnessFor } from './harnesses/index.mjs'
+// Claude Code's chat is a streamed CLI turn, which the generic delivery path below
+// cannot express, so its adapter is reached directly for that one thing.
+import claudeCode from './harnesses/claude-code.mjs'
 import {
   defaultHarness,
   harnessStatus,
@@ -324,6 +328,15 @@ for (const addrs of Object.values(os.networkInterfaces())) {
   }
 }
 
+// Under WSL2 the Windows host's own address is not one of this machine's interfaces,
+// so a phone that reaches the Windows side arrives with a Host the loop above never
+// learned. BOT_CROSSING_ALLOWED_HOSTS names those extra addresses, comma separated,
+// and they get the same Host and Origin treatment as the rest.
+for (const extra of (process.env.BOT_CROSSING_ALLOWED_HOSTS || '').split(',')) {
+  const host = extra.trim()
+  if (host) LOCAL_HOSTS.add(host)
+}
+
 /** Hostname out of a `Host:` or `Origin:` value, with the port and any brackets stripped. */
 function hostnameOf(value) {
   if (!value) return ''
@@ -385,6 +398,9 @@ function readJsonBody(req, limit = 4 * 1024 * 1024) {
 }
 
 /** Connect-style middleware: handles /api/*, passes everything else through. */
+/** The chat turns in flight, one per session, so a double send cannot fork a history. */
+const chatting = new Map()
+
 export async function apiMiddleware(req, res, next) {
   const url = new URL(req.url, 'http://localhost')
   if (!url.pathname.startsWith('/api/')) return next ? next() : send(res, 404, { error: 'Not found' })
@@ -455,6 +471,80 @@ export async function apiMiddleware(req, res, next) {
       const harness = body.harness || (await defaultHarness())
       const shown = await present(await harnessNewSession(harness, dir), viaOf(body))
       return send(res, shown.ok ? 200 : 400, shown)
+    }
+
+    // A window of a thread's transcript, from whichever harness owns it. `until` pages
+    // backwards, `since` is the live tail (everything appended past an offset the page
+    // already has), `probe` asks only for the current length.
+    if (url.pathname === '/api/chat/history' && req.method === 'GET') {
+      const h = harnessFor(url.searchParams.get('harness') || 'claude-code')
+      if (!h?.transcript) return send(res, 400, { error: 'That harness has no transcript to show' })
+      const until = Math.max(0, Number(url.searchParams.get('until')) || 0)
+      const sinceRaw = url.searchParams.get('since')
+      const since = sinceRaw === null ? -1 : Math.max(0, Number(sinceRaw) || 0)
+      const probe = url.searchParams.get('probe') === '1'
+      const shown = await h.transcript(url.searchParams.get('session') || '', { until, since, probe })
+      return send(res, shown.ok ? 200 : 404, shown)
+    }
+
+    // One chat turn. The page sends {harness, sessionId?, folder, prompt}. A harness that
+    // takes delivery (an inbox file a running agent watches, or a process started with
+    // the message on stdin) answers at once and the page watches the transcript grow.
+    // Claude Code streams its CLI turn back as NDJSON instead. The folder gets the same
+    // validation as /api/new-session, and the Host and Origin gate already ran.
+    if (url.pathname === '/api/chat' && req.method === 'POST') {
+      const body = await readJsonBody(req)
+      const prompt = typeof body.prompt === 'string' ? body.prompt.trim() : ''
+      if (!prompt) return send(res, 400, { error: 'Nothing to send' })
+      const h = harnessFor(body.harness || 'claude-code')
+
+      if (h?.deliver) {
+        const out = await h.deliver({ sessionId: body.sessionId || '', dir: await resolveFolder(body.folder) })
+        if (!out.ok) return send(res, 400, { error: out.error })
+        if (out.mode === 'inbox') {
+          // The adapter only names the file. Writing it is the server's doing, and the
+          // rename makes the agent never read a half written message.
+          await fsp.writeFile(`${out.file}.tmp`, prompt)
+          await fsp.rename(`${out.file}.tmp`, out.file)
+        } else if (out.mode === 'spawn') {
+          const child = spawn(out.argv[0], out.argv.slice(1), { cwd: out.cwd, detached: true, stdio: ['pipe', 'ignore', 'ignore'] })
+          child.on('error', () => {})
+          child.stdin.end(prompt)
+          child.unref()
+        }
+        return send(res, 200, { ok: true, mode: out.mode, sessionId: out.sessionId || body.sessionId || '' })
+      }
+      if (!h || h.id !== 'claude-code') return send(res, 400, { error: 'That harness cannot be chatted with yet' })
+
+      const dir = await resolveFolder(body.folder)
+      if (!dir) return send(res, 400, { error: 'That folder is not on this machine any more' })
+      const made = await claudeCode.chatCommand({ sessionId: body.sessionId || '', allowEdits: body.allowEdits !== false })
+      if (!made.ok) return send(res, 400, { error: made.error })
+      const key = String(body.sessionId || dir)
+      if (chatting.has(key)) return send(res, 409, { error: 'Still answering the last message' })
+
+      res.writeHead(200, { 'Content-Type': 'application/x-ndjson; charset=utf-8', 'Cache-Control': 'no-cache' })
+      const child = spawn(made.argv[0], made.argv.slice(1), { cwd: dir, stdio: ['pipe', 'pipe', 'pipe'] })
+      chatting.set(key, child)
+      let stderr = ''
+      child.stdout.on('data', (chunk) => res.write(chunk))
+      child.stderr.on('data', (chunk) => {
+        stderr += chunk
+      })
+      child.on('error', (err) => {
+        chatting.delete(key)
+        res.write(JSON.stringify({ type: 'server-error', error: String(err.message || err) }) + '\n')
+        res.end()
+      })
+      child.on('close', (code) => {
+        chatting.delete(key)
+        if (code !== 0) res.write(JSON.stringify({ type: 'server-error', error: (stderr || `The CLI exited with ${code}`).slice(-2000) }) + '\n')
+        res.end()
+      })
+      // Leaving the page mid answer kills the turn rather than leaving an orphan working.
+      req.on('close', () => child.kill('SIGTERM'))
+      child.stdin.end(prompt)
+      return
     }
 
     return send(res, 404, { error: 'Unknown endpoint' })

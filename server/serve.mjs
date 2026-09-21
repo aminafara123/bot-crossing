@@ -18,6 +18,7 @@ const TYPES = {
   '.png': 'image/png',
   '.ico': 'image/x-icon',
   '.woff2': 'font/woff2',
+  '.apk': 'application/vnd.android.package-archive',
 }
 
 /** Resolve inside dist/ only — a request can never climb out with `..`. */

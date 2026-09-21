@@ -5,6 +5,7 @@ import { Engine } from './core/engine.js'
 import { CameraRig } from './core/camera.js'
 import { Colony, STATUS_LABEL, STATUS_ORDER, statusFor, transcriptProgress } from './game/colony.js'
 import { Hud } from './ui/hud.js'
+import { ChatWindow } from './ui/chat.js'
 import { PLANETS } from './world/planet.js'
 import { DECK_TOP, PLOT_CELL, hexToWorld, worldToHex } from './world/plots.js'
 import { planMove } from './world/plot-move.js'
@@ -163,6 +164,8 @@ const actions = {
    * its workspace — nothing here is resumed, and nothing is written to disk.
    */
   newConversation: async () => {
+    // On a phone, new means new here: the conversation view, nothing on the PC.
+    if (hud.isPhone()) return actions.chatProject()
     const name = selectedProject
     const folder = name && pathForProject(name)
     if (!folder) {
@@ -246,9 +249,36 @@ const actions = {
     }
   },
 
+  /** Talk to the selected thread from the page itself, which is how a phone works it. */
+  chatThread: () => {
+    const thread = threads.find((t) => t.id === selectedId)
+    if (!thread) return
+    chat.open({
+      harness: thread.harness || 'claude-code',
+      sessionId: thread.ref?.cliSessionId || thread.ref?.sessionId || '',
+      folder: thread.projectPath || thread.cwd || '',
+      title: thread.title || 'Untitled thread',
+    })
+  },
+
+  /** A fresh thread in this repo, spoken to from the page rather than the desktop app. */
+  chatProject: () => {
+    const name = selectedProject
+    const folder = name && pathForProject(name)
+    if (!folder) {
+      hud.toast('No folder on disk for that project', 'err')
+      return
+    }
+    chat.open({ harness: harnessForProject(name) || 'claude-code', sessionId: '', folder, title: `New thread in ${name}` })
+    // Once the first turn lands there is a record to scan, and a bot to walk out.
+    setTimeout(poll, 8000)
+  },
+
   openThread: async () => {
     const thread = threads.find((t) => t.id === selectedId)
     if (!thread) return
+    // On a phone, open means open here: the conversation view, nothing on the PC.
+    if (hud.isPhone()) return actions.chatThread()
     try {
       const shown = await openThread(thread, settings.get('openIn'))
       colony.astronauts.celebrate(thread.id)
@@ -306,6 +336,7 @@ ambience.setPlanet(colony.planet)
 colony.onSound = (name, x, y, z) => ambience.play(name, { x, y, z, kind: colony.fauna.flock?.kind })
 
 const hud = new Hud(app, settings, actions)
+const chat = new ChatWindow(app, { onToast: (m, k) => hud.toast(m, k) })
 
 // ── selection ─────────────────────────────────────────────────────────────────────────
 

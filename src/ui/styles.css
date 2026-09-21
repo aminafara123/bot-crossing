@@ -1569,3 +1569,355 @@ kbd {
   }
 }
 .bot-crossing-canvas { cursor: grab; }
+
+/* The in page chat: a thread's transcript with a composer, floating over the colony. */
+
+.chat {
+  position: fixed;
+  right: 348px; /* clear of the sidebar */
+  bottom: 14px;
+  width: 460px;
+  height: min(660px, calc(100vh - 28px));
+  min-width: 300px;
+  min-height: 200px;
+  max-width: calc(100vw - 28px);
+  max-height: calc(100vh - 28px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  resize: both;
+  z-index: 20;
+}
+
+.chat[hidden] {
+  display: none;
+}
+
+.chat.min {
+  height: auto !important;
+  min-height: 0;
+  resize: none;
+}
+
+.chat.min .chat-msgs,
+.chat.min .chat-input {
+  display: none;
+}
+
+.chat-head {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 9px 9px 9px 14px;
+  border-bottom: 1px solid var(--line);
+  flex: none;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+
+.chat-head .dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--teal);
+  box-shadow: 0 0 10px var(--teal);
+  flex: none;
+}
+
+.chat-title {
+  flex: 1;
+  min-width: 0;
+  font-weight: 650;
+  font-size: 13.5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat-msgs {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.16) transparent;
+}
+
+.chat-msg {
+  max-width: 86%;
+  padding: 8px 12px;
+  border-radius: 14px;
+  font-size: 13.5px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.chat-msg.user {
+  align-self: flex-end;
+  background: var(--accent);
+  color: #fff;
+  border-bottom-right-radius: 4px;
+}
+
+.chat-msg.bot {
+  align-self: flex-start;
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid var(--line);
+  border-bottom-left-radius: 4px;
+}
+
+.chat-msg.tool {
+  align-self: flex-start;
+  padding: 3px 9px;
+  border-radius: 7px;
+  background: rgba(47, 212, 196, 0.1);
+  color: #7fe8dd;
+  font-size: 11px;
+}
+
+.chat-note {
+  align-self: center;
+  font-size: 11.5px;
+  color: var(--dim);
+  text-align: center;
+}
+
+.chat-note.err {
+  color: #e88b8b;
+}
+
+.chat-input {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  padding: 10px;
+  border-top: 1px solid var(--line);
+  flex: none;
+}
+
+.chat-input textarea {
+  flex: 1;
+  min-width: 0;
+  resize: none;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text);
+  font: inherit;
+  font-size: 13.5px;
+  line-height: 1.4;
+  padding: 9px 12px;
+  outline: none;
+}
+
+.chat-input textarea:focus {
+  border-color: var(--line-strong);
+}
+
+.chat-input .btn {
+  height: 38px;
+  width: 38px;
+  min-width: 38px;
+  flex: none;
+}
+
+/* Markdown, the way the agent's replies deserve to read. */
+.chat-msg.rich {
+  max-width: 100%;
+  align-self: stretch;
+}
+
+.chat-msg.rich > :first-child {
+  margin-top: 0;
+}
+
+.chat-msg.rich > :last-child {
+  margin-bottom: 0;
+}
+
+.chat-msg.rich p,
+.chat-msg.rich ul,
+.chat-msg.rich ol {
+  margin: 0 0 8px;
+}
+
+.chat-msg.rich h1,
+.chat-msg.rich h2,
+.chat-msg.rich h3,
+.chat-msg.rich h4 {
+  margin: 12px 0 6px;
+  font-size: 14px;
+}
+
+.chat-msg.rich code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 4px;
+  padding: 1px 5px;
+}
+
+.chat-msg.rich pre {
+  margin: 0 0 8px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.45);
+  border: 1px solid var(--line);
+  overflow-x: auto;
+}
+
+.chat-msg.rich pre code {
+  background: transparent;
+  padding: 0;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.chat-msg.rich a {
+  color: #8fb4ee;
+}
+
+.chat-msg.rich table {
+  border-collapse: collapse;
+  font-size: 12px;
+  margin: 0 0 8px;
+  display: block;
+  overflow-x: auto;
+}
+
+.chat-msg.rich th,
+.chat-msg.rich td {
+  border: 1px solid var(--line);
+  padding: 4px 8px;
+}
+
+/* Tool calls and thinking, folded the way the CLI folds them. */
+.chat-tool,
+.chat-think {
+  align-self: stretch;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.03);
+  font-size: 12px;
+  overflow: hidden;
+}
+
+.chat-tool summary,
+.chat-think summary {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 7px 11px;
+  cursor: pointer;
+  list-style: none;
+  color: var(--muted);
+  min-height: 20px;
+}
+
+.chat-tool summary::-webkit-details-marker,
+.chat-think summary::-webkit-details-marker {
+  display: none;
+}
+
+.chat-tool summary b {
+  color: #7fe8dd;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.chat-tool.err summary b {
+  color: #e88b8b;
+}
+
+.chat-tool summary span {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+}
+
+.chat-tool pre,
+.chat-think pre {
+  margin: 0;
+  padding: 9px 11px;
+  border-top: 1px solid var(--line);
+  font-size: 11px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 260px;
+  overflow-y: auto;
+  color: var(--muted);
+}
+
+.chat-tool pre.out {
+  color: var(--text);
+}
+
+.chat-think summary {
+  color: var(--dim);
+  font-style: italic;
+}
+
+.chat-earlier {
+  align-self: center;
+  margin: 2px 0 6px;
+  padding: 7px 14px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--muted);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.chat-earlier:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--text);
+}
+
+/* The chat on a phone: the whole screen, resized by dragging its header, folding to a pill. */
+@media (max-width: 600px) {
+  .chat {
+    left: 10px;
+    right: 10px;
+    top: calc(10px + env(safe-area-inset-top, 0px));
+    bottom: calc(10px + env(safe-area-inset-bottom, 0px));
+    width: auto;
+    height: auto;
+    resize: none;
+    transition: transform 160ms ease;
+  }
+  .chat.min {
+    top: auto;
+  }
+  .chat .btn.icon {
+    width: 42px;
+    min-width: 42px;
+    height: 42px;
+  }
+  .chat-input textarea {
+    font-size: 16px; /* under 16px the browser zooms the page to the field */
+  }
+  .chat-input .btn {
+    height: 44px;
+    width: 44px;
+    min-width: 44px;
+  }
+  /* One button per action on a phone: Open and New conversation already open things
+     here, so the "here only" variants would be duplicates. */
+  #btn-chat,
+  #btn-chat-here {
+    display: none;
+  }
+}

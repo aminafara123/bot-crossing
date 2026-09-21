@@ -14,6 +14,55 @@ is the only file it writes anywhere.
 > issues and PRs are welcome but may go unanswered, and forking is an entirely reasonable
 > thing to do. [CONTRIBUTING.md](CONTRIBUTING.md) sets out what to expect.
 
+## What I added
+
+This fork is where I took Bot Crossing from a desktop tool to something I use from my phone, from anywhere, to watch and talk to my agents. Upstream is [Station-Sciences/bot-crossing](https://github.com/Station-Sciences/bot-crossing). Everything in this section sits on top of their current main.
+
+Why: my coding agents run on a Windows 11 PC inside WSL2. I wanted to see them and message them from my phone without being at the desk, and I wanted my own from scratch Python agents on the same map as Claude Code.
+
+<p>
+<img src="docs/screenshots/phone-colony.png" width="230" alt="the colony on a phone">
+<img src="docs/screenshots/phone-conversation.png" width="230" alt="a thread's conversation on a phone, a tool call expanded">
+<img src="docs/screenshots/phone-chat-pill.png" width="230" alt="the conversation folded to a pill">
+</p>
+
+<p>
+<img src="docs/screenshots/desktop-conversation.png" width="700" alt="the conversation window floating over the colony on a desktop">
+</p>
+
+The screenshots come from a small demo colony with three made up agents, not from my real sessions.
+
+### The pieces
+
+- **Serve it to a phone from WSL2.** `BOT_CROSSING_ALLOWED_HOSTS` lets the Host check accept the Windows address and a Tailscale name, which the server cannot learn from its own interfaces inside WSL2. Sent upstream as [PR #70](https://github.com/Station-Sciences/bot-crossing/pull/70). `serve-lan.sh` works those names out and starts the server bound to every interface.
+- **A conversation view.** Open a thread on the phone and you get its transcript rendered the way the CLI shows it. Your messages, the agent's replies as markdown, tool calls that expand to their input and result, thinking folded away. It pages backwards through a transcript of any size and tails the file every few seconds, so a turn that happens in a terminal shows up on the phone without reopening anything. `src/ui/chat.js` and `/api/chat/history`.
+- **Chat from the phone.** The composer sends a message to the thread. For Claude Code the server runs one `claude -p` turn and streams the CLI's own JSON back. For a local agent it drops the message in an inbox file the running agent watches, or starts the agent again with the message on stdin. `/api/chat`.
+- **A Local Agent harness.** `server/harnesses/local-agent.mjs` reads a two file contract, a JSON status card and a JSONL transcript, that any agent you wrote yourself can produce. The adapter is read only like every adapter here. The server does the one write, the inbox file. My own agent runtime that writes this format lives in a separate repo.
+- **Two finger twist rotates the view.** Upstream had pinch to zoom and two finger pan. Twisting turns the camera, like a map app. `src/core/camera.js`.
+- **Phone behaviour.** On a phone, Open and New conversation open the conversation view right there and never launch anything on the PC. On a desktop nothing changes.
+
+### Run it the way I do
+
+```bash
+npm install && npm run build
+./serve-lan.sh
+```
+
+That binds every interface and prints the names a phone may use. Read "Keeping it local" further down first. There is no login, so only do this on a network you own or over a private mesh like Tailscale. I use Tailscale on the Windows side and a netsh portproxy into WSL2. The Android wrapper app I open it with is a separate repo.
+
+### Honest notes
+
+- Upstream shipped its own phone layout (bottom sheet, top rail, docked card) while I was building mine. I dropped my version and kept only what upstream does not have. That is why this fork is smaller than the work was.
+- The first message sent from the phone to a Claude Code session continues it under a new session id. That is how `claude --resume` works. The view follows the new id on its own, but a terminal still open on the old id will not see the phone's messages.
+- A local agent that asks for confirmation before a risky command gets an automatic no when the message came from the phone, because nobody is at the keyboard.
+- Two upstream tests fail on my machine before and after my changes (a subagent brief test and a Windows terminal test). Mine pass. `npm test` shows the numbers.
+- Verified on Windows 11 with WSL2 Ubuntu and Node 22, from an Android phone over home Wi-Fi, with the Tailscale route checked from the PC with curl, and with Playwright at 390x844 for every screen state in the screenshots.
+- Written with help from Claude Code. I directed the work and the verification ran on my own machine.
+
+### About
+
+Al Amin Afara. [github.com/aminafara123](https://github.com/aminafara123) and [linkedin.com/in/aminafara](https://linkedin.com/in/aminafara).
+
 ## Run it
 
 ```bash

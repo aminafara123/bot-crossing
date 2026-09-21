@@ -54,6 +54,42 @@ export function jsonLines(text) {
   return out
 }
 
+/**
+ * A line aligned window of a file, for paging through a transcript without reading all of
+ * it. Backwards from `until` (or the end) in `bytes` sized steps, or forwards from `since`
+ * to the end. A partial line at either edge is left for the neighbouring window, so every
+ * offset handed back is a line start and can come straight back as the next `until` or
+ * `since`.
+ */
+export async function readWindow(file, { until = 0, since = -1, bytes = 384 * 1024 } = {}) {
+  const fh = await fsp.open(file, 'r')
+  try {
+    const { size } = await fh.stat()
+    const forward = since >= 0
+    const end = forward ? size : until > 0 ? Math.min(until, size) : size
+    const start = forward ? Math.min(since, size) : Math.max(0, end - bytes)
+    const buf = Buffer.allocUnsafe(Math.max(0, end - start))
+    const { bytesRead } = await fh.read(buf, 0, buf.length, start)
+    let text = buf.subarray(0, bytesRead).toString('utf8')
+    let from = start
+    if (!forward && start > 0) {
+      const nl = text.indexOf('\n')
+      from = start + Buffer.byteLength(text.slice(0, nl + 1))
+      text = text.slice(nl + 1)
+    }
+    let to = end
+    if (text && !text.endsWith('\n')) {
+      // A writer mid append: leave the unfinished line for the next call.
+      const cut = text.lastIndexOf('\n') + 1
+      to = from + Buffer.byteLength(text.slice(0, cut))
+      text = text.slice(0, cut)
+    }
+    return { text, start: from, end: to, size }
+  } finally {
+    await fh.close()
+  }
+}
+
 export async function listFiles(dir, filter) {
   let entries
   try {

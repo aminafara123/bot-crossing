@@ -41,6 +41,8 @@
   },
   "dependencies": {
     "@mdi/js": "^7.4.47",
+    "dompurify": "^3.4.15",
+    "marked": "^18.0.13",
     "three": "^0.185.0"
   },
   "devDependencies": {

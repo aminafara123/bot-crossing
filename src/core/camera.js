@@ -133,6 +133,7 @@ export class CameraRig {
       this._mode = 'pinch'
       this._moved = 6 // lifting either finger must not select/deselect beneath the pinch
       this._pinch = this._pinchDistance()
+      this._twist = this._pinchAngle()
       this._grab(...this._pinchCentre())
       return
     }
@@ -170,6 +171,14 @@ export class CameraRig {
         this._sync()
       }
       this._pinch = d
+      // Two fingers twisting rotate the view, as on a map app. The delta is wrapped so the
+      // line between the fingers crossing 180 degrees reads as a small turn, not a full spin.
+      const a = this._pinchAngle()
+      let turn = a - this._twist
+      if (turn > Math.PI) turn -= Math.PI * 2
+      if (turn < -Math.PI) turn += Math.PI * 2
+      this._twist = a
+      this.desiredAzimuth += turn
       // Two fingers pan as well as zoom, both anchored on the point between them.
       this._dragGround(cx, cy)
       return
@@ -255,6 +264,12 @@ export class CameraRig {
   _pinchCentre() {
     const [a, b] = [...this._pointers.values()]
     return [(a.x + b.x) / 2, (a.y + b.y) / 2]
+  }
+
+  /** The angle of the line between the two fingers, for the twist to rotate gesture. */
+  _pinchAngle() {
+    const [a, b] = [...this._pointers.values()]
+    return Math.atan2(b.y - a.y, b.x - a.x)
   }
 
   _clampTarget() {

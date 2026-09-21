@@ -18,7 +18,7 @@ import fsp from 'node:fs/promises'
 import { existsSync, readdirSync } from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
-import { exists, findExecutable, jsonLines, listDirs, listFiles, num, readHead, readTail } from '../lib/fsutil.mjs'
+import { exists, findExecutable, jsonLines, listDirs, listFiles, num, readHead, readTail, readWindow } from '../lib/fsutil.mjs'
 
 const HOME = os.homedir()
 
@@ -703,6 +703,99 @@ async function newSession(dir) {
   return { ok: true, url, command }
 }
 
+/** The transcript file for a CLI session, wherever its project directory put it. */
+async function transcriptFile(sessionId) {
+  if (!UUID.test(String(sessionId))) return null
+  for (const dir of await listDirs(CLI_PROJECTS)) {
+    const file = path.join(dir, `${sessionId}.jsonl`)
+    if (existsSync(file)) return file
+  }
+  return null
+}
+
+/** Text out of a content that may be a string or an array of blocks. */
+function flatText(content) {
+  if (typeof content === 'string') return content
+  return (content || [])
+    .filter((b) => b?.type === 'text')
+    .map((b) => b.text)
+    .join('\n')
+}
+
+/** The one field of a tool's input worth a summary line, plus the whole thing for expanding. */
+function summariseInput(input) {
+  if (!input || typeof input !== 'object') return { line: '', full: '' }
+  const line = String(input.command || input.file_path || input.pattern || input.url || input.prompt || input.description || '')
+  const full = JSON.stringify(input, null, 1)
+  return { line: line.slice(0, 140), full: full.length > 2400 ? `${full.slice(0, 2400)}…` : full }
+}
+
+/**
+ * A stretch of a session's transcript as renderable blocks: what the person typed, what
+ * the agent said and thought, and every tool call with its result. Read backwards in
+ * windows, because a long lived session runs to tens of megabytes and the page wants the
+ * recent past first. `until` is a byte offset from a previous reply and the reply's own
+ * `until` continues further back. `since` is the live tail, everything appended past an
+ * offset the page already has. `probe` asks only how long the file is now.
+ */
+async function transcript(sessionId, { until = 0, since = -1, probe = false } = {}) {
+  const file = await transcriptFile(sessionId)
+  if (!file) return { ok: false, error: 'No transcript on disk for that session' }
+  if (probe) return { ok: true, end: (await fsp.stat(file)).size }
+  const win = await readWindow(file, { until, since })
+  const entries = jsonLines(win.text)
+
+  // Results arrive as separate "user" entries. Pair them onto their tool call by id.
+  const results = new Map()
+  for (const entry of entries) {
+    if (entry?.type !== 'user' || !Array.isArray(entry.message?.content)) continue
+    for (const b of entry.message.content) {
+      if (b?.type === 'tool_result') results.set(b.tool_use_id, { text: flatText(b.content).slice(0, 4000), isError: Boolean(b.is_error) })
+    }
+  }
+
+  const blocks = []
+  for (const entry of entries) {
+    const msg = entry?.message
+    if (!msg || (entry.type !== 'user' && entry.type !== 'assistant')) continue
+    if (entry.isMeta) continue
+    const ts = entry.timestamp || ''
+    if (entry.type === 'user') {
+      const said = flatText(msg.content).trim()
+      // Local command echoes are terminal plumbing, not conversation.
+      if (!said || said.includes('<command-name>') || said.includes('<local-command-stdout>')) continue
+      blocks.push({ kind: 'user', text: said, ts })
+      continue
+    }
+    for (const b of msg.content || []) {
+      if (b?.type === 'text' && b.text?.trim()) blocks.push({ kind: 'text', text: b.text, ts })
+      else if (b?.type === 'thinking' && b.thinking?.trim()) blocks.push({ kind: 'thinking', text: b.thinking.slice(0, 4000) })
+      else if (b?.type === 'tool_use') {
+        const r = results.get(b.id)
+        blocks.push({ kind: 'tool', name: b.name, ...summariseInput(b.input), result: r ? r.text : '', isError: Boolean(r?.isError) })
+      }
+    }
+  }
+  return { ok: true, blocks, until: win.start, more: since < 0 && win.start > 0, end: win.end }
+}
+
+/**
+ * One non interactive turn against a session (or a fresh one, when no id is given), for
+ * the in page chat. The server spawns it in the project folder, writes the prompt to
+ * stdin, and streams the CLI's own JSON lines straight back to the page.
+ */
+async function chatCommand({ sessionId, allowEdits }) {
+  const bin = await cliBinary()
+  if (!bin) return { ok: false, error: 'The claude CLI is not installed on this machine' }
+  const argv = [bin, '-p', '--output-format', 'stream-json', '--verbose']
+  if (allowEdits) argv.push('--permission-mode', 'acceptEdits')
+  if (sessionId) {
+    if (!UUID.test(String(sessionId))) return { ok: false, error: 'That session id is not resumable' }
+    argv.push('--resume', String(sessionId))
+  }
+  return { ok: true, argv }
+}
+
 export default {
   id: 'claude-code',
   name: 'Claude Code',
@@ -711,5 +804,7 @@ export default {
   scanThreads,
   openThread,
   newSession,
+  transcript,
+  chatCommand,
   paths: { DESKTOP_SESSIONS, CLI_PROJECTS, CLI_LIVE },
 }
